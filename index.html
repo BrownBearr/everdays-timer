@@ -23,29 +23,34 @@
       inset: 0;
     }
 
-    /* Blurred fill — always cover, snaps to current clip after each transition */
-    #blur-fill {
+    /* Each slot wraps a blur layer + sharp layer and fades as one unit */
+    .slot {
+      position: absolute;
+      inset: 0;
+      transition: opacity 0.6s ease;
+    }
+
+    #slot-b {
+      opacity: 0;
+    }
+
+    /* Blurred fill — always cover, scaled up to hide blur-edge artifacts */
+    .blur-layer {
       position: absolute;
       inset: 0;
       background-size: cover;
       background-position: center center;
       background-repeat: no-repeat;
-      transform: scale(1.12); /* push blurred edges out of frame */
+      transform: scale(1.12);
       filter: blur(40px) brightness(0.45);
     }
 
-    /* Sharp layers — contain so no image is ever cropped */
-    .bg {
+    /* Sharp image — background-size set dynamically (cover for landscape, contain for square/portrait) */
+    .sharp-layer {
       position: absolute;
       inset: 0;
-      background-size: contain;
       background-position: center center;
       background-repeat: no-repeat;
-      transition: opacity 0.6s ease;
-    }
-
-    #bg-b {
-      opacity: 0;
     }
 
     #vignette {
@@ -95,12 +100,17 @@
 </head>
 <body>
   <div id="stage">
-    <div id="blur-fill"></div>
-    <div class="bg" id="bg-a"></div>
-    <div class="bg" id="bg-b"></div>
+    <div id="slot-a" class="slot">
+      <div class="blur-layer" id="blur-a"></div>
+      <div class="sharp-layer" id="sharp-a"></div>
+    </div>
+    <div id="slot-b" class="slot">
+      <div class="blur-layer" id="blur-b"></div>
+      <div class="sharp-layer" id="sharp-b"></div>
+    </div>
     <div id="vignette"></div>
     <div id="center">
-      <div id="timer">00:00:00</div>
+      <div id="timer">0000</div>
       <div id="day">day —</div>
     </div>
   </div>

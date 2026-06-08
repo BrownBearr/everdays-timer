@@ -2,13 +2,29 @@ import clipsData from './clips.json';
 
 type Clip = { id: number; name: string };
 
+interface Slot {
+  el: HTMLDivElement;
+  blur: HTMLDivElement;
+  sharp: HTMLDivElement;
+}
+
 const CDN = (import.meta.env.VITE_CDN_BASE as string).replace(/\/$/, '');
 const PRELOAD_AHEAD = 5;
 const TRANSITION_MS = 600;
 
-const bgA = document.getElementById('bg-a') as HTMLDivElement;
-const bgB = document.getElementById('bg-b') as HTMLDivElement;
-const blurFill = document.getElementById('blur-fill') as HTMLDivElement;
+const slots: [Slot, Slot] = [
+  {
+    el: document.getElementById('slot-a') as HTMLDivElement,
+    blur: document.getElementById('blur-a') as HTMLDivElement,
+    sharp: document.getElementById('sharp-a') as HTMLDivElement,
+  },
+  {
+    el: document.getElementById('slot-b') as HTMLDivElement,
+    blur: document.getElementById('blur-b') as HTMLDivElement,
+    sharp: document.getElementById('sharp-b') as HTMLDivElement,
+  },
+];
+
 const timerEl = document.getElementById('timer') as HTMLDivElement;
 const dayEl = document.getElementById('day') as HTMLDivElement;
 
@@ -20,7 +36,7 @@ for (let i = clips.length - 1; i > 0; i--) {
 }
 
 let clipIndex = 0;
-let frontIsA = true;
+let frontIdx = 0;
 
 function posterUrl(name: string): string {
   return `${CDN}/${name}-hd.jpg`;
@@ -41,51 +57,57 @@ function preloadAhead(fromIndex: number): void {
   }
 }
 
-function applyImage(back: HTMLDivElement, front: HTMLDivElement, url: string, dayName: string): void {
-  back.style.backgroundImage = `url("${url}")`;
-  void back.getBoundingClientRect();
-  back.style.opacity = '1';
-  front.style.opacity = '0';
-  dayEl.textContent = `day ${dayName}`;
-  setTimeout(() => {
-    frontIsA = !frontIsA;
-    // Snap blur fill after transition — blurry snap is invisible
-    blurFill.style.backgroundImage = `url("${url}")`;
-  }, TRANSITION_MS);
+// Populate a slot — blur always covers, sharp uses cover for landscape or contain for square/portrait
+function fillSlot(slot: Slot, url: string, imgW: number, imgH: number): void {
+  const vpRatio = window.innerWidth / window.innerHeight;
+  const imgRatio = imgW / imgH;
+  // If the image is as wide (or wider) than the viewport ratio → cover fills edge to edge.
+  // A 5% tolerance handles minor rounding in source video dimensions.
+  const bgSize = imgRatio >= vpRatio * 0.95 ? 'cover' : 'contain';
+  slot.blur.style.backgroundImage = `url("${url}")`;
+  slot.sharp.style.backgroundImage = `url("${url}")`;
+  slot.sharp.style.backgroundSize = bgSize;
 }
 
 function crossfade(clip: Clip): void {
-  const back = frontIsA ? bgB : bgA;
-  const front = frontIsA ? bgA : bgB;
+  const backIdx = frontIdx === 0 ? 1 : 0;
+  const back = slots[backIdx];
+  const front = slots[frontIdx];
+
+  function apply(img: HTMLImageElement): void {
+    fillSlot(back, img.src, img.naturalWidth, img.naturalHeight);
+    // Force reflow so the opacity transition fires from the current value
+    void back.el.getBoundingClientRect();
+    back.el.style.opacity = '1';
+    front.el.style.opacity = '0';
+    dayEl.textContent = `day ${clip.name}`;
+    setTimeout(() => { frontIdx = backIdx; }, TRANSITION_MS);
+  }
 
   const loader = new Image();
-  loader.onload = () => applyImage(back, front, loader.src, clip.name);
+  loader.onload = () => apply(loader);
   loader.onerror = () => {
-    // HD poster not uploaded yet — fall back to the 400px thumbnail
-    const fallback = new Image();
-    fallback.onload = () => applyImage(back, front, fallback.src, clip.name);
-    fallback.src = fallbackUrl(clip.name);
+    const fb = new Image();
+    fb.onload = () => apply(fb);
+    fb.src = fallbackUrl(clip.name);
   };
   loader.src = posterUrl(clip.name);
 }
 
-// Load and show the first clip before the timer starts
+// Show first clip immediately (slot-a starts at opacity 1)
 const firstClip = clips[clipIndex++];
 const firstLoader = new Image();
-firstLoader.onload = () => {
-  bgA.style.backgroundImage = `url("${firstLoader.src}")`;
-  blurFill.style.backgroundImage = `url("${firstLoader.src}")`;
-};
+firstLoader.onload = () => fillSlot(slots[0], firstLoader.src, firstLoader.naturalWidth, firstLoader.naturalHeight);
 firstLoader.onerror = () => {
-  const fb = fallbackUrl(firstClip.name);
-  bgA.style.backgroundImage = `url("${fb}")`;
-  blurFill.style.backgroundImage = `url("${fb}")`;
+  const fb = new Image();
+  fb.onload = () => fillSlot(slots[0], fb.src, fb.naturalWidth, fb.naturalHeight);
+  fb.src = fallbackUrl(firstClip.name);
 };
 firstLoader.src = posterUrl(firstClip.name);
 dayEl.textContent = `day ${firstClip.name}`;
 preloadAhead(0);
 
-// Timer — one tick per second drives both the clock and the image swap
+// One tick per second drives both the clock and the image swap
 let elapsed = 0;
 setInterval(() => {
   elapsed++;
