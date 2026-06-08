@@ -23,10 +23,22 @@
       inset: 0;
     }
 
-    .bg {
+    /* Blurred fill — always cover, snaps to current clip after each transition */
+    #blur-fill {
       position: absolute;
       inset: 0;
       background-size: cover;
+      background-position: center center;
+      background-repeat: no-repeat;
+      transform: scale(1.12); /* push blurred edges out of frame */
+      filter: blur(40px) brightness(0.45);
+    }
+
+    /* Sharp layers — contain so no image is ever cropped */
+    .bg {
+      position: absolute;
+      inset: 0;
+      background-size: contain;
       background-position: center center;
       background-repeat: no-repeat;
       transition: opacity 0.6s ease;
@@ -83,6 +95,7 @@
 </head>
 <body>
   <div id="stage">
+    <div id="blur-fill"></div>
     <div class="bg" id="bg-a"></div>
     <div class="bg" id="bg-b"></div>
     <div id="vignette"></div>

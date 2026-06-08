@@ -8,6 +8,7 @@ const TRANSITION_MS = 600;
 
 const bgA = document.getElementById('bg-a') as HTMLDivElement;
 const bgB = document.getElementById('bg-b') as HTMLDivElement;
+const blurFill = document.getElementById('blur-fill') as HTMLDivElement;
 const timerEl = document.getElementById('timer') as HTMLDivElement;
 const dayEl = document.getElementById('day') as HTMLDivElement;
 
@@ -46,7 +47,11 @@ function applyImage(back: HTMLDivElement, front: HTMLDivElement, url: string, da
   back.style.opacity = '1';
   front.style.opacity = '0';
   dayEl.textContent = `day ${dayName}`;
-  setTimeout(() => { frontIsA = !frontIsA; }, TRANSITION_MS);
+  setTimeout(() => {
+    frontIsA = !frontIsA;
+    // Snap blur fill after transition — blurry snap is invisible
+    blurFill.style.backgroundImage = `url("${url}")`;
+  }, TRANSITION_MS);
 }
 
 function crossfade(clip: Clip): void {
@@ -67,8 +72,15 @@ function crossfade(clip: Clip): void {
 // Load and show the first clip before the timer starts
 const firstClip = clips[clipIndex++];
 const firstLoader = new Image();
-firstLoader.onload = () => { bgA.style.backgroundImage = `url("${firstLoader.src}")`; };
-firstLoader.onerror = () => { bgA.style.backgroundImage = `url("${fallbackUrl(firstClip.name)}")`; };
+firstLoader.onload = () => {
+  bgA.style.backgroundImage = `url("${firstLoader.src}")`;
+  blurFill.style.backgroundImage = `url("${firstLoader.src}")`;
+};
+firstLoader.onerror = () => {
+  const fb = fallbackUrl(firstClip.name);
+  bgA.style.backgroundImage = `url("${fb}")`;
+  blurFill.style.backgroundImage = `url("${fb}")`;
+};
 firstLoader.src = posterUrl(firstClip.name);
 dayEl.textContent = `day ${firstClip.name}`;
 preloadAhead(0);
