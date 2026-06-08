@@ -22,14 +22,15 @@ let clipIndex = 0;
 let frontIsA = true;
 
 function posterUrl(name: string): string {
+  return `${CDN}/${name}-hd.jpg`;
+}
+
+function fallbackUrl(name: string): string {
   return `${CDN}/${name}.jpg`;
 }
 
 function formatTime(secs: number): string {
-  const h = Math.floor(secs / 3600);
-  const m = Math.floor((secs % 3600) / 60);
-  const s = secs % 60;
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return String(secs).padStart(4, '0');
 }
 
 function preloadAhead(fromIndex: number): void {
@@ -39,30 +40,36 @@ function preloadAhead(fromIndex: number): void {
   }
 }
 
+function applyImage(back: HTMLDivElement, front: HTMLDivElement, url: string, dayName: string): void {
+  back.style.backgroundImage = `url("${url}")`;
+  void back.getBoundingClientRect();
+  back.style.opacity = '1';
+  front.style.opacity = '0';
+  dayEl.textContent = `day ${dayName}`;
+  setTimeout(() => { frontIsA = !frontIsA; }, TRANSITION_MS);
+}
+
 function crossfade(clip: Clip): void {
   const back = frontIsA ? bgB : bgA;
   const front = frontIsA ? bgA : bgB;
-  const url = posterUrl(clip.name);
 
   const loader = new Image();
-  loader.onload = () => {
-    back.style.backgroundImage = `url("${url}")`;
-    // Force reflow so the CSS transition fires from the new opacity value
-    void back.getBoundingClientRect();
-    back.style.opacity = '1';
-    front.style.opacity = '0';
-    dayEl.textContent = `day ${clip.name}`;
-
-    setTimeout(() => {
-      frontIsA = !frontIsA;
-    }, TRANSITION_MS);
+  loader.onload = () => applyImage(back, front, loader.src, clip.name);
+  loader.onerror = () => {
+    // HD poster not uploaded yet — fall back to the 400px thumbnail
+    const fallback = new Image();
+    fallback.onload = () => applyImage(back, front, fallback.src, clip.name);
+    fallback.src = fallbackUrl(clip.name);
   };
-  loader.src = url;
+  loader.src = posterUrl(clip.name);
 }
 
 // Load and show the first clip before the timer starts
 const firstClip = clips[clipIndex++];
-bgA.style.backgroundImage = `url("${posterUrl(firstClip.name)}")`;
+const firstLoader = new Image();
+firstLoader.onload = () => { bgA.style.backgroundImage = `url("${firstLoader.src}")`; };
+firstLoader.onerror = () => { bgA.style.backgroundImage = `url("${fallbackUrl(firstClip.name)}")`; };
+firstLoader.src = posterUrl(firstClip.name);
 dayEl.textContent = `day ${firstClip.name}`;
 preloadAhead(0);
 
