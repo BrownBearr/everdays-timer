@@ -1,12 +1,11 @@
 // Extract a 1080p JPEG frame from each source MP4 on B2 and upload as {name}-hd.jpg.
-// ffmpeg reads only the moov atom + first frame from the remote URL (faststart MP4s),
-// so each clip takes ~2-5s rather than downloading the full video.
+// If the frame at 0.5s is too dark (YAVG < 20 on 0-255 scale), retries at 50% into the video.
 //
 // Usage:
 //   node scripts/gen-hd-posters.mjs --dry-run     # preview only
 //   node scripts/gen-hd-posters.mjs --limit 3     # test first 3
-//   node scripts/gen-hd-posters.mjs               # all 566 clips
-//   node scripts/gen-hd-posters.mjs --force       # re-generate even if hd poster exists
+//   node scripts/gen-hd-posters.mjs               # all clips (skips already-done)
+//   node scripts/gen-hd-posters.mjs --force       # re-generate all (fixes existing dark frames)
 
 import fs from "node:fs";
 import os from "node:os";
@@ -31,7 +30,11 @@ loadEnv(".env");
 
 const CDN = (process.env.VITE_CDN_BASE || "").replace(/\/$/, "");
 const FFMPEG = process.env.FFMPEG_PATH || "ffmpeg";
+const FFPROBE = process.env.FFPROBE_PATH || "ffprobe";
 const BUCKET = process.env.B2_BUCKET;
+
+// Mean Y luminance below this is considered too dark to use (0–255 scale)
+const DARK_THRESHOLD = 20;
 
 const argv = new Set(process.argv.slice(2));
 const DRY = argv.has("--dry-run");
@@ -63,12 +66,52 @@ async function hdExists(client, key) {
   } catch { return false; }
 }
 
+// Extract one frame from a URL at a given seek time into outFile
+function extractFrame(url, seekSec, outFile) {
+  const r = spawnSync(FFMPEG, [
+    "-y", "-ss", String(seekSec),
+    "-i", url,
+    "-frames:v", "1",
+    "-vf", "scale=-2:1080",
+    "-q:v", "3",
+    outFile,
+  ], { stdio: ["ignore", "ignore", "pipe"] });
+  if (r.status !== 0) {
+    const msg = r.stderr?.toString().trim().split("\n").slice(-3).join(" ") || "ffmpeg failed";
+    throw new Error(msg);
+  }
+}
+
+// Mean Y luminance of a local JPEG (0–255). Returns 255 on failure so we don't retry.
+function getLuminance(file) {
+  const r = spawnSync(FFPROBE, [
+    "-v", "quiet",
+    "-f", "lavfi",
+    "-i", `movie=${file.replace(/\\/g, "/")},signalstats`,
+    "-show_entries", "frame_tags=lavfi.signalstats.YAVG",
+    "-of", "default=noprint_wrappers=1:nokey=1",
+  ], { encoding: "utf8" });
+  const val = parseFloat(r.stdout.trim());
+  return Number.isNaN(val) ? 255 : val;
+}
+
+// Duration in seconds of a remote video via ffprobe
+function getVideoDuration(url) {
+  const r = spawnSync(FFPROBE, [
+    "-v", "quiet",
+    "-show_entries", "format=duration",
+    "-of", "default=noprint_wrappers=1:nokey=1",
+    url,
+  ], { encoding: "utf8" });
+  return parseFloat(r.stdout.trim()) || 0;
+}
+
 async function main() {
   requireEnv();
   const client = s3();
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "everdays-hd-"));
 
-  let done = 0, skipped = 0, failed = 0;
+  let done = 0, skipped = 0, failed = 0, retried = 0;
   const clips = CLIPS.slice(0, LIMIT);
   console.log(`Processing ${clips.length} clip(s)…`);
 
@@ -94,19 +137,18 @@ async function main() {
     const t0 = Date.now();
 
     try {
-      const r = spawnSync(FFMPEG, [
-        "-y",
-        "-ss", "0.5",
-        "-i", sourceUrl,
-        "-frames:v", "1",
-        "-vf", "scale=-2:1080",
-        "-q:v", "3",
-        outFile,
-      ], { stdio: ["ignore", "ignore", "pipe"] });
+      // First attempt: 0.5s in
+      extractFrame(sourceUrl, 0.5, outFile);
 
-      if (r.status !== 0) {
-        const msg = r.stderr?.toString().trim().split("\n").slice(-3).join(" ") || "ffmpeg failed";
-        throw new Error(msg);
+      // Check if frame is too dark
+      const luma = getLuminance(outFile);
+      if (luma < DARK_THRESHOLD) {
+        process.stdout.write(`dark(${Math.round(luma)}) → retrying at 50%… `);
+        const dur = getVideoDuration(sourceUrl);
+        if (dur > 1) {
+          extractFrame(sourceUrl, dur / 2, outFile);
+        }
+        retried++;
       }
 
       const kb = Math.round(fs.statSync(outFile).size / 1024);
@@ -130,7 +172,7 @@ async function main() {
   }
 
   fs.rmSync(tmp, { recursive: true, force: true });
-  console.log(`\nDone. Generated ${done}, skipped ${skipped}, failed ${failed}.`);
+  console.log(`\nDone. Generated ${done} (${retried} retried at 50%), skipped ${skipped}, failed ${failed}.`);
 }
 
 main().catch(e => { console.error(e); process.exit(1); });
