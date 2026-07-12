@@ -4,6 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>everdays</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=Space+Grotesk:wght@300;400;500&display=swap" rel="stylesheet" />
   <style>
     *, *::before, *::after {
       margin: 0;
@@ -23,34 +26,14 @@
       inset: 0;
     }
 
-    /* Each slot wraps a blur layer + sharp layer and fades as one unit */
-    .slot {
+    /* WebGL canvas renders the image + water ripple simulation */
+    #gl {
       position: absolute;
       inset: 0;
-      transition: opacity 0.6s ease;
-    }
-
-    #slot-b {
-      opacity: 0;
-    }
-
-    /* Blurred fill — always cover, scaled up to hide blur-edge artifacts */
-    .blur-layer {
-      position: absolute;
-      inset: 0;
-      background-size: cover;
-      background-position: center center;
-      background-repeat: no-repeat;
-      transform: scale(1.12);
-      filter: blur(40px) brightness(0.45);
-    }
-
-    /* Sharp image — background-size set dynamically (cover for landscape, contain for square/portrait) */
-    .sharp-layer {
-      position: absolute;
-      inset: 0;
-      background-position: center center;
-      background-repeat: no-repeat;
+      width: 100%;
+      height: 100%;
+      display: block;
+      filter: brightness(1.25);
     }
 
     #vignette {
@@ -58,8 +41,8 @@
       inset: 0;
       background: radial-gradient(
         ellipse 90% 90% at 50% 50%,
-        rgba(0, 0, 0, 0.1) 0%,
-        rgba(0, 0, 0, 0.7) 100%
+        rgba(0, 0, 0, 0.05) 0%,
+        rgba(0, 0, 0, 0.45) 100%
       );
       pointer-events: none;
     }
@@ -71,16 +54,16 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 1rem;
+      gap: 1.6rem;
       pointer-events: none;
     }
 
     #timer {
       color: #fff;
-      font-family: 'SF Mono', 'Fira Code', 'Fira Mono', ui-monospace, monospace;
-      font-size: clamp(2.5rem, 10vw, 9rem);
-      font-weight: 200;
-      letter-spacing: 0.06em;
+      font-family: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+      font-size: clamp(3rem, 13vw, 11rem);
+      font-weight: 300;
+      letter-spacing: 0.01em;
       font-variant-numeric: tabular-nums;
       text-shadow: 0 2px 80px rgba(0, 0, 0, 0.5);
       line-height: 1;
@@ -88,30 +71,33 @@
     }
 
     #day {
-      color: rgba(255, 255, 255, 0.3);
-      font-family: 'SF Mono', 'Fira Code', 'Fira Mono', ui-monospace, monospace;
-      font-size: clamp(0.55rem, 1.4vw, 0.8rem);
-      font-weight: 400;
-      letter-spacing: 0.5em;
+      color: #fff;
+      font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+      font-size: clamp(0.8rem, 2vw, 1.1rem);
+      font-weight: 600;
+      letter-spacing: 0.4em;
+      text-indent: 0.4em;
       text-transform: uppercase;
+      text-shadow: 0 1px 24px rgba(0, 0, 0, 0.9);
       user-select: none;
+      opacity: 1;
+      transition: opacity 300ms ease;
+    }
+
+    /* Held at 0 (transition off) right before a swap, then released to fade in. */
+    #day.swap {
+      opacity: 0;
+      transition: none;
     }
   </style>
 </head>
 <body>
   <div id="stage">
-    <div id="slot-a" class="slot">
-      <div class="blur-layer" id="blur-a"></div>
-      <div class="sharp-layer" id="sharp-a"></div>
-    </div>
-    <div id="slot-b" class="slot">
-      <div class="blur-layer" id="blur-b"></div>
-      <div class="sharp-layer" id="sharp-b"></div>
-    </div>
+    <canvas id="gl"></canvas>
     <div id="vignette"></div>
     <div id="center">
-      <div id="timer">0000</div>
       <div id="day">day —</div>
+      <div id="timer">0000</div>
     </div>
   </div>
   <script type="module" src="/src/main.ts"></script>

@@ -1,30 +1,12 @@
 import clipsData from './clips.json';
+import { RippleStage } from './ripple';
 
 type Clip = { id: number; name: string };
 
-interface Slot {
-  el: HTMLDivElement;
-  blur: HTMLDivElement;
-  sharp: HTMLDivElement;
-}
-
 const CDN = (import.meta.env.VITE_CDN_BASE as string).replace(/\/$/, '');
 const PRELOAD_AHEAD = 5;
-const TRANSITION_MS = 600;
 
-const slots: [Slot, Slot] = [
-  {
-    el: document.getElementById('slot-a') as HTMLDivElement,
-    blur: document.getElementById('blur-a') as HTMLDivElement,
-    sharp: document.getElementById('sharp-a') as HTMLDivElement,
-  },
-  {
-    el: document.getElementById('slot-b') as HTMLDivElement,
-    blur: document.getElementById('blur-b') as HTMLDivElement,
-    sharp: document.getElementById('sharp-b') as HTMLDivElement,
-  },
-];
-
+const stage = new RippleStage(document.getElementById('gl') as HTMLCanvasElement);
 const timerEl = document.getElementById('timer') as HTMLDivElement;
 const dayEl = document.getElementById('day') as HTMLDivElement;
 
@@ -36,7 +18,6 @@ for (let i = clips.length - 1; i > 0; i--) {
 }
 
 let clipIndex = 0;
-let frontIdx = 0;
 
 function posterUrl(name: string): string {
   return `${CDN}/${name}-hd.jpg`;
@@ -53,69 +34,54 @@ function formatTime(secs: number): string {
 function preloadAhead(fromIndex: number): void {
   for (let i = 1; i <= PRELOAD_AHEAD; i++) {
     const img = new Image();
+    img.crossOrigin = 'anonymous';
     img.src = posterUrl(clips[(fromIndex + i) % clips.length].name);
   }
 }
 
-// Populate a slot — blur always covers, sharp uses cover for landscape or contain for square/portrait
-function fillSlot(slot: Slot, url: string, imgW: number, imgH: number): void {
-  const vpRatio = window.innerWidth / window.innerHeight;
-  const imgRatio = imgW / imgH;
-  // If the image is as wide (or wider) than the viewport ratio → cover fills edge to edge.
-  // A 5% tolerance handles minor rounding in source video dimensions.
-  const bgSize = imgRatio >= vpRatio * 0.95 ? 'cover' : 'contain';
-  slot.blur.style.backgroundImage = `url("${url}")`;
-  slot.sharp.style.backgroundImage = `url("${url}")`;
-  slot.sharp.style.backgroundSize = bgSize;
+// Decode a URL into an ImageBitmap off the main thread (flipped to match GL's
+// texture orientation), so the per-second swap never blocks on JPEG decoding.
+async function loadBitmap(url: string): Promise<ImageBitmap> {
+  const res = await fetch(url, { mode: 'cors' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const blob = await res.blob();
+  return createImageBitmap(blob, { imageOrientation: 'flipY' });
 }
 
-function crossfade(clip: Clip): void {
-  const backIdx = frontIdx === 0 ? 1 : 0;
-  const back = slots[backIdx];
-  const front = slots[frontIdx];
-
-  function apply(img: HTMLImageElement): void {
-    fillSlot(back, img.src, img.naturalWidth, img.naturalHeight);
-    // Force reflow so the opacity transition fires from the current value
-    void back.el.getBoundingClientRect();
-    back.el.style.opacity = '1';
-    front.el.style.opacity = '0';
-    dayEl.textContent = `day ${clip.name}`;
-    setTimeout(() => { frontIdx = backIdx; }, TRANSITION_MS);
+// Load a clip's poster (with non-HD fallback) and hand it to the ripple stage,
+// which crossfades while the water surface keeps rippling underneath.
+async function showClip(clip: Clip): Promise<void> {
+  let bmp: ImageBitmap;
+  try {
+    bmp = await loadBitmap(posterUrl(clip.name));
+  } catch {
+    try {
+      bmp = await loadBitmap(fallbackUrl(clip.name));
+    } catch {
+      return;
+    }
   }
-
-  const loader = new Image();
-  loader.onload = () => apply(loader);
-  loader.onerror = () => {
-    const fb = new Image();
-    fb.onload = () => apply(fb);
-    fb.src = fallbackUrl(clip.name);
-  };
-  loader.src = posterUrl(clip.name);
+  stage.setImage(bmp);
+  bmp.close();
+  // Jump to opacity 0 (transition off), set the new day, then release so it
+  // transitions back to its resting opacity.
+  dayEl.classList.add('swap');
+  dayEl.textContent = `day ${clip.name}`;
+  void dayEl.offsetWidth; // commit the 0-opacity state before transitioning
+  dayEl.classList.remove('swap');
 }
 
-// Show first clip immediately (slot-a starts at opacity 1)
-const firstClip = clips[clipIndex++];
-const firstLoader = new Image();
-firstLoader.onload = () => fillSlot(slots[0], firstLoader.src, firstLoader.naturalWidth, firstLoader.naturalHeight);
-firstLoader.onerror = () => {
-  const fb = new Image();
-  fb.onload = () => fillSlot(slots[0], fb.src, fb.naturalWidth, fb.naturalHeight);
-  fb.src = fallbackUrl(firstClip.name);
-};
-firstLoader.src = posterUrl(firstClip.name);
-dayEl.textContent = `day ${firstClip.name}`;
+// Show the first clip immediately.
+showClip(clips[clipIndex++]);
 preloadAhead(0);
 
-// One tick per second drives both the clock and the image swap
+// One tick per second drives both the clock and the image swap.
 let elapsed = 0;
 setInterval(() => {
   elapsed++;
   timerEl.textContent = formatTime(elapsed);
 
-  const clip = clips[clipIndex % clips.length];
+  showClip(clips[clipIndex % clips.length]);
   clipIndex++;
-
-  crossfade(clip);
   preloadAhead(clipIndex);
 }, 1000);
